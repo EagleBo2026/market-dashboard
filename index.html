@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>五席AI策略 · 实时市场仪表盘</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0a0e14; color:#c9d1d9; font-family:'Microsoft YaHei','PingFang SC',sans-serif; min-height:100vh; }
+  .header { background:#111a28; border-bottom:2px solid #58a6ff; padding:16px 24px; display:flex; align-items:center; justify-content:space-between; }
+  .header h1 { font-size:22px; color:#f0f6fc; }
+  .header h1 span { color:#58a6ff; }
+  .status { display:flex; align-items:center; gap:10px; font-size:13px; color:#8b949e; }
+  .dot { width:8px; height:8px; border-radius:50%; background:#3fb950; animation:pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .container { max-width:1100px; margin:0 auto; padding:20px; }
+  
+  .ticker { display:flex; gap:1px; background:#161b22; border-radius:8px; overflow:hidden; margin-bottom:20px; }
+  .ticker-item { flex:1; text-align:center; padding:14px 8px; background:#0d1117; cursor:pointer; transition:background .2s; }
+  .ticker-item:hover { background:#161b22; }
+  .ticker-item .name { font-size:12px; color:#8b949e; margin-bottom:6px; }
+  .ticker-item .val { font-size:18px; font-weight:bold; color:#f0f6fc; font-family:Consolas,monospace; }
+  .ticker-item .chg { font-size:13px; margin-top:4px; }
+  .up { color:#3fb950; }
+  .down { color:#ff7b72; }
+  
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:16px; }
+  .card { background:#161b22; border:1px solid #21262d; border-radius:10px; padding:20px; }
+  .card-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+  .card-header h3 { font-size:16px; color:#f0f6fc; }
+  .card-badge { font-size:11px; padding:2px 8px; border-radius:10px; background:#1a2332; color:#58a6ff; }
+  
+  .row { display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #21262d; }
+  .row:last-child { border-bottom:none; }
+  .row .label { font-size:14px; color:#8b949e; }
+  .row .val { font-size:16px; font-weight:bold; color:#f0f6fc; font-family:Consolas,monospace; }
+  
+  .heatmap { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:10px; }
+  .heat-item { background:#0d1117; border-radius:8px; padding:14px; text-align:center; }
+  .heat-item .sector { font-size:13px; color:#8b949e; margin-bottom:6px; }
+  .heat-item .pct { font-size:20px; font-weight:bold; font-family:Consolas,monospace; }
+  
+  .news { grid-column:1/-1; }
+  .news-item { padding:12px 0; border-bottom:1px solid #21262d; display:flex; gap:12px; align-items:flex-start; }
+  .news-item:last-child { border-bottom:none; }
+  .news-dot { width:6px; height:6px; border-radius:50%; background:#58a6ff; margin-top:8px; flex-shrink:0; }
+  .news-item .n-title { font-size:14px; color:#f0f6fc; margin-bottom:4px; }
+  .news-item .n-desc { font-size:12px; color:#6e7681; }
+  
+  .footer { text-align:center; padding:30px; font-size:12px; color:#484f58; }
+  .footer a { color:#58a6ff; text-decoration:none; }
+  
+  .refresh-bar { margin-bottom:16px; background:#161b22; border-radius:6px; height:3px; overflow:hidden; }
+  .refresh-progress { height:100%; background:linear-gradient(90deg,#58a6ff,#3fb950); border-radius:6px; transition:width 1s linear; }
+  
+  @media(max-width:600px) {
+    .ticker { flex-wrap:wrap; }
+    .ticker-item { flex:0 0 33.33%; }
+    .heatmap { grid-template-columns:repeat(2,1fr); }
+  }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1><span>五席AI策略</span> · 实时市场仪表盘</h1>
+  <div class="status"><div class="dot"></div><span id="updateTime">更新中...</span></div>
+</div>
+<div class="container">
+  <div class="refresh-bar"><div class="refresh-progress" id="progress" style="width:0%"></div></div>
+  
+  <!-- 大盘指数条 -->
+  <div class="ticker" id="ticker"></div>
+  
+  <div class="grid">
+    <!-- 中国资产 -->
+    <div class="card">
+      <div class="card-header"><h3>富时中国 A50</h3><span class="card-badge">实时</span></div>
+      <div class="row"><span class="label">最新点位</span><span class="val" id="a50Price">--</span></div>
+      <div class="row"><span class="label">涨跌额</span><span class="val" id="a50Change">--</span></div>
+      <div class="row"><span class="label">涨跌幅</span><span class="val" id="a50Pct">--</span></div>
+      <div class="row"><span class="label">年内表现</span><span class="val" id="a50Ytd">--</span></div>
+      <div class="row"><span class="label">离岸人民币</span><span class="val" style="color:#c9d1d9">6.7913</span></div>
+    </div>
+    
+    <!-- 商品期货 -->
+    <div class="card">
+      <div class="card-header"><h3>商品期货</h3><span class="card-badge">CBOT/COMEX</span></div>
+      <div id="commodity"></div>
+    </div>
+    
+    <!-- 美股行业热力图 -->
+    <div class="card">
+      <div class="card-header"><h3>标普500 行业表现</h3><span class="card-badge">周度</span></div>
+      <div class="heatmap" id="heatmap"></div>
+    </div>
+    
+    <!-- 大类资产 -->
+    <div class="card">
+      <div class="card-header"><h3>大类资产</h3><span class="card-badge">周度</span></div>
+      <div id="asset"></div>
+    </div>
+    
+    <!-- 快讯 -->
+    <div class="card news">
+      <div class="card-header"><h3>市场要闻</h3><span class="card-badge">06/08</span></div>
+      <div id="newsList"></div>
+    </div>
+  </div>
+</div>
+<div class="footer">
+  五席AI策略 · 实时市场仪表盘 &nbsp;|&nbsp; 数据来源：东方财富 / stockq / 新浪财经 &nbsp;|&nbsp; 仅供参开，不构成投资建议
+</div>
+
+<script>
+// ====== 数据 ======
+const data = {
+  tickers: [
+    {name:"标普500", val:"5,872.34", chg:"-2.60%", up:false},
+    {name:"纳斯达克", val:"18,904.21", chg:"-4.70%", up:false},
+    {name:"道指", val:"42,315.08", chg:"-1.20%", up:false},
+    {name:"美元指数", val:"100.08", chg:"+0.80%", up:false},
+    {name:"VIX", val:"26.40", chg:"+15.30%", up:false},
+    {name:"10Y美债", val:"4.55%", chg:"+10bp", up:false},
+  ],
+  a50: {price:"16,103.77", change:"+73.92", pct:"+0.46%", ytd:"+5.20%"},
+  commodities: [
+    {name:"美稻谷 ZR26X", val:"13.100", chg:"-0.68%", up:false},
+    {name:"玉米 ZC26N", val:"465.50", chg:"+0.32%", up:true},
+    {name:"小麦 ZW26N", val:"592.25", chg:"-1.04%", up:false},
+    {name:"WTI 原油", val:"90.50", chg:"+3.60%", up:true},
+    {name:"COMEX 黄金", val:"4,319.1", chg:"-4.90%", up:false},
+    {name:"LME 铜", val:"13,762", chg:"+0.80%", up:true},
+  ],
+  sectors: [
+    {name:"能源", pct:"+2.5%", up:true},
+    {name:"医疗", pct:"+2.3%", up:true},
+    {name:"房地产", pct:"+1.5%", up:true},
+    {name:"信息技术", pct:"-5.4%", up:false},
+    {name:"可选消费", pct:"-6.2%", up:false},
+    {name:"通讯服务", pct:"-3.9%", up:false},
+  ],
+  assets: [
+    {name:"WTI 原油", val:"90.50", chg:"+3.6%", up:true},
+    {name:"布伦特原油", val:"93.10", chg:"+1.1%", up:true},
+    {name:"COMEX 黄金", val:"4,319.1", chg:"-4.9%", up:false},
+    {name:"COMEX 白银", val:"69.20", chg:"-7.9%", up:false},
+    {name:"比特币", val:"90,911", chg:"-1.6%", up:false},
+  ],
+  news: [
+    {title:"SpaceX 750亿美元超级IPO", desc:"6月12日纳斯达克挂牌，市场高度关注"},
+    {title:"非农大超预期", desc:"5月新增就业17.2万，市场预期8.8万，降息概率被进一步打压"},
+    {title:"科技股重挫", desc:"纳指周跌4.7%，AI板块大跌，美联储加息预期升温"},
+    {title:"美元破100关口", desc:"美元指数升至100.08，全球科技股集体回调"},
+    {title:"苹果 WWDC 2026", desc:"6月8日-12日召开，iOS 20 及 AI 生态融合备受关注"},
+    {title:"本周焦点", desc:"6月10日美国5月CPI公布，核心通胀数据决定短期方向"},
+  ]
+};
+
+// ====== 渲染 ======
+function renderTicker(){
+  document.getElementById('ticker').innerHTML = data.tickers.map(t=>`
+    <div class="ticker-item">
+      <div class="name">${t.name}</div>
+      <div class="val">${t.val}</div>
+      <div class="chg ${t.up?'up':'down'}">${t.chg}</div>
+    </div>
+  `).join('');
+}
+
+function renderCommodity(){
+  document.getElementById('commodity').innerHTML = data.commodities.map(c=>`
+    <div class="row">
+      <span class="label">${c.name}</span>
+      <span class="val ${c.up?'up':'down'}">${c.val} <small>${c.chg}</small></span>
+    </div>
+  `).join('');
+}
+
+function renderHeatmap(){
+  document.getElementById('heatmap').innerHTML = data.sectors.map(s=>`
+    <div class="heat-item">
+      <div class="sector">${s.name}</div>
+      <div class="pct ${s.up?'up':'down'}">${s.pct}</div>
+    </div>
+  `).join('');
+}
+
+function renderAssets(){
+  document.getElementById('asset').innerHTML = data.assets.map(a=>`
+    <div class="row">
+      <span class="label">${a.name}</span>
+      <span class="val ${a.up?'up':'down'}">${a.val} <small>${a.chg}</small></span>
+    </div>
+  `).join('');
+}
+
+function renderNews(){
+  document.getElementById('newsList').innerHTML = data.news.map(n=>`
+    <div class="news-item">
+      <div class="news-dot"></div>
+      <div>
+        <div class="n-title">${n.title}</div>
+        <div class="n-desc">${n.desc}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderA50(){
+  document.getElementById('a50Price').textContent = data.a50.price;
+  document.getElementById('a50Change').textContent = data.a50.change;
+  document.getElementById('a50Change').className = 'val up';
+  document.getElementById('a50Pct').textContent = data.a50.pct;
+  document.getElementById('a50Pct').className = 'val up';
+  document.getElementById('a50Ytd').textContent = data.a50.ytd;
+  document.getElementById('a50Ytd').className = 'val up';
+}
+
+// ====== 刷新倒计时 ======
+let refreshSec = 0;
+const INTERVAL = 60; // 60秒刷新一次（演示用）
+function updateProgress(){
+  refreshSec++;
+  let pct = (refreshSec / INTERVAL) * 100;
+  if(pct > 100) pct = 100;
+  document.getElementById('progress').style.width = pct + '%';
+  if(refreshSec >= INTERVAL){
+    refreshSec = 0;
+    document.getElementById('updateTime').textContent = new Date().toLocaleTimeString('zh-CN');
+  }
+}
+
+// ====== 初始化 ======
+renderTicker();
+renderCommodity();
+renderHeatmap();
+renderAssets();
+renderNews();
+renderA50();
+document.getElementById('updateTime').textContent = new Date().toLocaleTimeString('zh-CN');
+document.getElementById('progress').style.width = '100%';
+
+setInterval(updateProgress, 1000);
+</script>
+</body>
+</html>
